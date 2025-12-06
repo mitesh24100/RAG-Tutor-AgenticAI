@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+langchain
+langchain-ollama
+langchain-nomic
+ollama
+faiss-cpu
+sqlmodel
+python-dotenv
+pydantic
