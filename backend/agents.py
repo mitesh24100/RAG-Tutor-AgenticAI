@@ -10,10 +10,10 @@ This version:
 """
 
 from typing import List, Dict, Any
-from models import get_chat_model
-from embeddings import get_embeddings
-from vectorstore import create_or_load_faiss, add_texts, save_faiss, similarity_search
-from utils import safe_json_load
+from backend.models import get_chat_model
+from backend.embeddings import get_embeddings
+from backend.vectorstore import create_or_load_faiss, add_texts, save_faiss, similarity_search
+from backend.utils import safe_json_load
 import json
 import os
 import re
