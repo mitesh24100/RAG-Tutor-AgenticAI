@@ -1,8 +1,9 @@
 # app.py
 from fastapi import FastAPI
 from pydantic import BaseModel
-from backend.db import init_db, upsert_progress, get_progress
-from backend.agents import (
+from db import init_db, upsert_progress, get_progress
+from fastapi.middleware.cors import CORSMiddleware
+from agents import (
     run_agentic_pipeline,
     get_lesson_plan,
     generate_tutorial_for,
@@ -13,6 +14,15 @@ import re
 import json
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # frontend origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 init_db()
 
 class StartReq(BaseModel):

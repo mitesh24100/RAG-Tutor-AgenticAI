@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain.schema import Document
-from backend.embeddings import get_embeddings
+from embeddings import get_embeddings
 
 load_dotenv()
 INDEX_DIR = os.getenv("FAISS_INDEX_DIR", "./data/faiss_index")

@@ -10,10 +10,10 @@ This version:
 """
 
 from typing import List, Dict, Any
-from backend.models import get_chat_model
-from backend.embeddings import get_embeddings
-from backend.vectorstore import create_or_load_faiss, add_texts, save_faiss, similarity_search
-from backend.utils import safe_json_load
+from models import get_chat_model
+from embeddings import get_embeddings
+from vectorstore import create_or_load_faiss, add_texts, save_faiss, similarity_search
+from utils import safe_json_load
 import json
 import os
 import re
@@ -210,12 +210,12 @@ Tutorial:
 
 Return ONLY JSON:
 {{
-  "quality": "good" or "bad",
+  "quality": "good" or "bad" only,
   "reason": "one-sentence explanation"
 }}
 """
     output = _call_llm(prompt, temperature=0.0, max_tokens=400)
-    #print("Evaluator output:", output)
+    print("Evaluator output:", output)
     return output
     """
     parsed = safe_json_load(raw)
@@ -253,6 +253,7 @@ def run_agentic_pipeline(topic: str) -> Dict[str, Any]:
     question = cleaned_tutor_data["question"]
     expected_answer = cleaned_tutor_data["expected_answer"]
     
+    print("$$$$$$$$$$$$$$$$$$$$$$$")
     print(tutorial, question, expected_answer)
     print("*******")
     # 4. Evaluate tutorial quality and optionally regenerate (1 quick retry)
@@ -263,6 +264,7 @@ def run_agentic_pipeline(topic: str) -> Dict[str, Any]:
     cleaned_eval_result = json.loads(cleaned_eval_result)
     print(cleaned_eval_result["quality"])
     print(cleaned_eval_result["reason"])
+    
     
     
     # 5. Store tutorial to FAISS for later retrieval
