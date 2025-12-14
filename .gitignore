@@ -3,3 +3,4 @@
 /frontend/build
 /frontend/package-lock.json
 /backend/__pycache__
+/__pycache__
