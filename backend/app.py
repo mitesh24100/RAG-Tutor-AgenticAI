@@ -34,6 +34,10 @@ class SubmitReq(BaseModel):
     topic: str
     answer: str
 
+class ContinueReq(BaseModel):
+    user_id: str
+    topic: str
+
 
 @app.post("/start")
 def start(req: StartReq):
@@ -90,14 +94,14 @@ def submit(req: SubmitReq):
     }
 
 
-@app.get("/continue")
-def continue_lesson(user_id: str, topic: str):
-    progress = get_progress(user_id, topic)
+@app.post("/continue")
+def continue_lesson(req: ContinueReq):
+    progress = get_progress(req.user_id, req.topic)
     lesson_idx = progress.current_lesson_idx
     print("********************")
     print(lesson_idx)
     
-    plan = get_lesson_plan(topic)
+    plan = get_lesson_plan(req.topic)
     print(plan)
     
     if lesson_idx >= len(plan):
@@ -106,20 +110,15 @@ def continue_lesson(user_id: str, topic: str):
     lesson_title = plan[lesson_idx]["title"]
     lesson_data = generate_tutorial_for(lesson_title)
     
-    cleaned_tutor_data = lesson_data.strip()
-    cleaned_tutor_data = re.sub(r"^```json|```$", "", cleaned_tutor_data).strip()
-    
-    cleaned_tutor_data = json.loads(cleaned_tutor_data)
-    
 
     upsert_progress(
-        user_id,
-        topic,
+        req.user_id,
+        req.topic,
         idx=lesson_idx,
         mastery=progress.mastery,
-        question=cleaned_tutor_data["question"],
-        expected_answer=cleaned_tutor_data["expected_answer"],
-        tutorial=cleaned_tutor_data["tutorial"]
+        question=lesson_data["question"],
+        expected_answer=lesson_data["expected_answer"],
+        tutorial=lesson_data["tutorial"]
     )
 
     return lesson_data
