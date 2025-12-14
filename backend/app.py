@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from db import init_db, upsert_progress, get_progress
+from fastapi.middleware.cors import CORSMiddleware
 from agents import (
     run_agentic_pipeline,
     get_lesson_plan,
@@ -9,8 +10,19 @@ from agents import (
     evaluate_student_answer,
 )
 import uvicorn
+import re
+import json
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # frontend origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 init_db()
 
 class StartReq(BaseModel):
@@ -82,23 +94,32 @@ def submit(req: SubmitReq):
 def continue_lesson(user_id: str, topic: str):
     progress = get_progress(user_id, topic)
     lesson_idx = progress.current_lesson_idx
-
+    print("********************")
+    print(lesson_idx)
+    
     plan = get_lesson_plan(topic)
-
+    print(plan)
+    
     if lesson_idx >= len(plan):
         return {"message": "All lessons completed!"}
 
     lesson_title = plan[lesson_idx]["title"]
     lesson_data = generate_tutorial_for(lesson_title)
+    
+    cleaned_tutor_data = lesson_data.strip()
+    cleaned_tutor_data = re.sub(r"^```json|```$", "", cleaned_tutor_data).strip()
+    
+    cleaned_tutor_data = json.loads(cleaned_tutor_data)
+    
 
     upsert_progress(
         user_id,
         topic,
         idx=lesson_idx,
         mastery=progress.mastery,
-        question=lesson_data["question"],
-        expected_answer=lesson_data["expected_answer"],
-        tutorial=lesson_data["tutorial"]
+        question=cleaned_tutor_data["question"],
+        expected_answer=cleaned_tutor_data["expected_answer"],
+        tutorial=cleaned_tutor_data["tutorial"]
     )
 
     return lesson_data
