@@ -48,15 +48,14 @@ def _call_llm(prompt: str, temperature: float = 0.2, max_tokens: int | None = No
         return f"LLM_CALL_FAILED: {e}"
 
 
-def extract_json(text: str) -> dict | None:
-
-    # Remove ```json and ``` fences
-    cleaned = re.sub(r"^```json\s*|```$", "", text.strip(), flags=re.DOTALL)
-
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        return None
+def _clean_text(s: str) -> str:
+    if not s:
+        return ""
+    s = s.strip()
+    # Remove markdown fences if any
+    s = re.sub(r"^```.*?\n", "", s, flags=re.DOTALL)
+    s = re.sub(r"```$", "", s)
+    return s.strip()
 
 
 # =====================================================================================
@@ -67,22 +66,7 @@ def planner(topic: str) -> List[Dict[str, str]]:
     """
     Create a simple 3-step lesson plan.
     """
-    prompt = f"""
-You are an educational planner.
-
-Create exactly 3 short lesson items for the topic: "{topic}".
-Return ONLY a JSON array of objects with keys: title (short), goal (one sentence).
-
-Example:
-[
-  {{"title": "Intro to X", "goal": "Understand basic ideas"}},
-  ...
-]
-"""
-    raw = _call_llm(prompt, temperature=0.0)
-    parsed = safe_json_load(raw)
-    if parsed and isinstance(parsed, list):
-        return parsed
+    
     # fallback
     return [
         {"title": f"Introduction to {topic}", "goal": "Understand basics"},
@@ -132,38 +116,56 @@ def tutor_generate(lesson_title: str, retrieved_chunks, max_retries: int = 2):
         md = chunk.metadata
         context += md.get("content", "") + "\n\n"
 
+
     prompt = f"""
-You are an expert instructor.
-Write a detailed, friendly tutorial for the lesson:
+        You are an expert instructor.
+        Write a detailed, friendly tutorial for the lesson:
 
-Lesson: "{lesson_title}"
+        Lesson: "{lesson_title}"
 
-Use this structure:
-- 1 short paragraphs (~200–250 words)
-- Clear explanations in simple language
-- Include 1–2 concrete examples
-- End with a short 2–3 sentence summary
-- Then produce one quiz question and its expected short correct answer.
+        Use this structure:
+        - 1 short paragraph ( around 50 - 150 words)
+        - Clear explanations in simple language
+        - End with a short 1–2 sentence summary
 
-If helpful, use the context below:
-{context}
+        If helpful, use the context below:
+        {context}
 
-Return ONLY JSON in this exact shape:
-
-{{
-  "tutorial": "... full tutorial ...",
-  "question": "... one question ...",
-  "expected_answer": "... short correct answer based on the question ..."
-}}
-"""
-    output = _call_llm(prompt)
-    print("Tutor raw output:", output)
-    data = extract_json(output)
-    print("Tutor converted output:", data)
-    if data and all(k in data for k in ["tutorial", "question", "expected_answer"]):
-            return data
+    """
+    tutorial = _clean_text(_call_llm(prompt))
     
-    #return output
+    # Now generate a question + expected answer
+    question_prompt = f"""
+        Based ONLY on the tutorial below, write ONE clear quiz question in a single sentence to test understanding.
+
+        Tutorial:
+        {tutorial}
+
+        Return ONLY the question , do not try to return answer associated with it please.
+    """
+    question = _clean_text(_call_llm(question_prompt))
+    
+    
+    # Expected answer prompt
+    answer_prompt = f"""
+        Based ONLY on the tutorial below, write a concise expected answer to the question provided.  
+
+        Tutorial:
+        {tutorial}  
+        Question:
+        {question}
+        Return ONLY the expected answer in a single sentence (of about 10-20 words).
+    """
+    expected_answer = _clean_text(_call_llm(answer_prompt))
+    
+    
+    
+    
+    return {
+        "tutorial": tutorial,
+        "question": question,
+        "expected_answer": expected_answer,
+    }
     
 
 
@@ -177,25 +179,18 @@ def evaluator_check(tutorial: str, lesson_title: str) -> str:
     Ask the LLM to judge tutorial quality. Return JSON with 'quality' and 'reason'.
     """
     prompt = f"""
-Please evaluate the following tutorial for lesson '{lesson_title}'.
+    Please evaluate the following tutorial for lesson '{lesson_title}'.
 
-Tutorial:
-{tutorial}
+        Tutorial:
+        {tutorial}
 
-Return ONLY JSON:
-{{
-  "quality": "good" or "bad",
-  "reason": "one-sentence explanation"
-}}
-"""
-    output = _call_llm(prompt, temperature=0.0, max_tokens=400)
-    return output
+        Return ONLY either "good" or "bad":
+        
     """
-    parsed = safe_json_load(raw)
-    if parsed and isinstance(parsed, dict) and "quality" in parsed:
-        return parsed
-    # fallback consider it good but note fallback
-    return {"quality": "good", "reason": "fallback evaluation (could not parse model response)"}"""
+    rating = _clean_text(_call_llm(prompt, temperature=0.0, max_tokens=400))
+    print("Tutorial quality rating:", rating)
+    
+    return rating
 
 
 # =====================================================================================
@@ -209,46 +204,37 @@ def run_agentic_pipeline(topic: str) -> Dict[str, Any]:
     # 1. Planner
     lessons = planner(topic)
     lesson_title = lessons[0]["title"]
-    print(lessons, lesson_title)
-    print("*******")
+   
     # 2. RAG retrieval (use lesson_title as query)
     retrieved = rag_retrieve(lesson_title)
 
     # 3. Tutor generation with validation/retries
     tutor_data = tutor_generate(lesson_title, retrieved, max_retries=3)
     
-    print("Tutor generated data:")
-    tutorial = tutor_data["tutorial"]
-    question = tutor_data["question"]
-    expected_answer = tutor_data["expected_answer"]
-    
-                     
-    '''
     # 4. Evaluate tutorial quality and optionally regenerate (1 quick retry)
-    eval_result_str = evaluator_check(tutorial, lesson_title)
-    cleaned_eval_result = eval_result_str.strip()
-    cleaned_eval_result = re.sub(r"^```json|```$", "", cleaned_eval_result).strip()
+    rating = evaluator_check(tutor_data["tutorial"], lesson_title)
     
-    cleaned_eval_result = json.loads(cleaned_eval_result)
-    
-    print("Evaluated tutorial quality:")
-    '''
-    
+    while rating.lower() != "good":
+        print("Regenerating tutorial due to low quality...")
+        tutor_data = tutor_generate(lesson_title, retrieved, max_retries=2)
+        rating = evaluator_check(tutor_data["tutorial"], lesson_title)
+        
     
     # 5. Store tutorial to FAISS for later retrieval
     try:
-        store_lesson_content(lesson_title, tutorial)
+        store_lesson_content(lesson_title, tutor_data["tutorial"])
     except Exception:
         pass
     
     return {
         "lesson_plan": lessons,
         "lesson_title": lesson_title,
-        "tutorial": tutorial,
-        "question": question,
-        "expected_answer": expected_answer,
-        "evaluation": "good"
+        "tutorial": tutor_data["tutorial"],
+        "question": tutor_data["question"],
+        "expected_answer": tutor_data["expected_answer"],
+        "evaluation": rating
     }
+    
 
 
 # =====================================================================================
@@ -268,34 +254,80 @@ def evaluate_student_answer(lesson_title: str, student_answer: str, expected_ans
     """
     Evaluate student's answer semantically against expected_answer and return mastery.
     """
+    student_answer = student_answer.strip()
+    expected_answer = expected_answer.strip()
+    
+    # Correctness prompt
     prompt = f"""
-You are an evaluator comparing a student's short answer to the expected correct answer.
+        You are an expert evaluator.
+        Given the expected answer and the student's answer, determine if the student's answer demonstrates mastery of the topic.
+        Expected Answer:
+        {expected_answer}
+        Student's Answer:
+        {student_answer}    
+        Is the student's answer essentially correct?
+        Respond with ONLY one word: yes or no.
+    """
+    
+    correctness = _clean_text(_call_llm(prompt, temperature=0.0, max_tokens=50)).lower()
+    
+    correct = correctness.startswith("y")
+    
+    
+    # Mastery prompt
+    mastery_prompt = f"""
+        You are grading understanding depth of the student on the below lesson.
+        Lesson: {lesson_title}
 
-Lesson: {lesson_title}
+        Below is the expected answer and the student's answer.
+        Expected answer:
+        {expected_answer}
+        Student answer:
+        {student_answer}
 
-Expected (concise): {expected_answer}
-Student answer: {student_answer}
+        Rate the student's mastery of the topic on a scale from 0 to 1 according to the below scale.
+        - 1.0 = fully correct and clear
+        - 0.7 = mostly correct, minor gaps
+        - 0.4 = partially correct
+        - 0.0 = incorrect or irrelevant
 
-Return ONLY JSON:
-{{
-  "mastery": a number between 0 and 1,
-  "correct": true/false,
-  "feedback": "a short constructive sentence"
-}}
-"""
-    raw = _call_llm(prompt, temperature=0.4, max_tokens=300)
-    parsed = safe_json_load(raw)
-    if parsed and isinstance(parsed, dict) and "mastery" in parsed:
-        # ensure numeric conversion safety
-        try:
-            parsed["mastery"] = float(parsed["mastery"])
-        except Exception:
-            parsed["mastery"] = 0.0
-        return parsed
-    # fallback: very conservative exact-match heuristic
-    low_student = (student_answer or "").strip().lower()
-    low_expected = (expected_answer or "").strip().lower()
-    correct = low_expected in low_student or low_student in low_expected
-    mastery = 1.0 if correct else 0.0
-    feedback = "Looks good." if correct else "Answer is incomplete or not precise."
-    return {"mastery": mastery, "correct": correct, "feedback": feedback}
+        PLEASE Return ONLY the mastery score between 0 to 1 (single digit) and nothing else please.
+    """
+    
+    mastery = _clean_text(_call_llm(mastery_prompt, temperature=0.0, max_tokens=10))
+    try:
+        mastery = re.findall(r"0\.\d+|1\.0|1", mastery)[0]
+        mastery = float(mastery)
+    except Exception:
+        mastery = 0.0  # default if parsing fails
+
+    print("Mastery score:", mastery)
+    print("Type:", type(mastery))
+    
+    
+    # Feedback prompt
+    feedback_prompt = f"""
+        You are giving constructive feedback to a learner.
+
+        Lesson: {lesson_title}
+
+        Expected answer:
+        {expected_answer}
+
+        Student answer:
+        {student_answer}
+
+        Write ONE short constructive sentence (feedback) in about 20-30 words that you will give to the student (no emojis).
+    """
+    
+    feedback = _clean_text(_call_llm(feedback_prompt, temperature=0.2, max_tokens=150))
+    
+    
+    return {
+        "correct": correct,
+        "mastery": mastery,
+        "feedback": feedback
+    }
+    
+
+    

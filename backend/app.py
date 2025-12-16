@@ -63,11 +63,9 @@ def submit(req: SubmitReq):
     lesson_idx = progress.current_lesson_idx
     expected_answer = progress.expected_answer
     
-    print(lesson_idx, expected_answer)
-
     plan = get_lesson_plan(req.topic)
     lesson_title = plan[lesson_idx]["title"]
-    print(lesson_title)
+    
 
     evaluation = evaluate_student_answer(
         lesson_title=lesson_title,
@@ -108,6 +106,7 @@ def continue_lesson(req: ContinueReq):
         return {"message": "All lessons completed!"}
 
     lesson_title = plan[lesson_idx]["title"]
+    print(lesson_title)
     lesson_data = generate_tutorial_for(lesson_title)
     
 
